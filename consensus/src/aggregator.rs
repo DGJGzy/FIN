@@ -1,7 +1,7 @@
 use crate::config::{Committee, Stake};
-use crate::core::{SeqNumber, OPT, PES, RBC_ECHO, RBC_READY};
+use crate::core::{SeqNumber, RBC_ECHO, RBC_READY};
 use crate::error::{ConsensusError, ConsensusResult};
-use crate::messages::{EchoVote, Prepare, RBCProof, RandomnessShare, ReadyVote};
+use crate::messages::{EchoVote, RBCProof, RandomnessShare, ReadyVote};
 use crypto::{PublicKey, Signature};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
@@ -18,7 +18,6 @@ pub struct Aggregator {
     share_coin_aggregators: HashMap<(SeqNumber, SeqNumber, SeqNumber), Box<RandomCoinMaker>>,
     echo_vote_aggregators: HashMap<(SeqNumber, SeqNumber), Box<RBCProofMaker>>,
     ready_vote_aggregators: HashMap<(SeqNumber, SeqNumber), Box<RBCProofMaker>>,
-    prepare_vote_aggregators: HashMap<(SeqNumber, SeqNumber), Box<PrepareMaker>>,
 }
 
 impl Aggregator {
@@ -28,7 +27,6 @@ impl Aggregator {
             share_coin_aggregators: HashMap::new(),
             echo_vote_aggregators: HashMap::new(),
             ready_vote_aggregators: HashMap::new(),
-            prepare_vote_aggregators: HashMap::new(),
         }
     }
 
@@ -60,13 +58,6 @@ impl Aggregator {
             )
     }
 
-    pub fn add_prepare_vote(&mut self, prepare: Prepare) -> ConsensusResult<Option<(u8, bool)>> {
-        self.prepare_vote_aggregators
-            .entry((prepare.epoch, prepare.height))
-            .or_insert_with(|| Box::new(PrepareMaker::new()))
-            .append(prepare, &self.committee)
-    }
-
     pub fn add_aba_share_coin(
         &mut self,
         share: RandomnessShare,
@@ -78,17 +69,10 @@ impl Aggregator {
             .append(share, &self.committee, pk_set)
     }
 
-    pub fn cleanup(&mut self, epoch: SeqNumber, height: SeqNumber) {
-        let size = self.committee.size() as u64;
-        let rank = epoch * size + height;
-        self.echo_vote_aggregators
-            .retain(|(e, h, ..), _| e * size + h > rank);
-        self.ready_vote_aggregators
-            .retain(|(e, h, ..), _| e * size + h > rank);
-        self.prepare_vote_aggregators
-            .retain(|(e, h, ..), _| e * size + h > rank);
-        self.share_coin_aggregators
-            .retain(|(e, h, _), _| e * size + h > rank);
+    pub fn cleanup(&mut self, epoch: SeqNumber) {
+        self.echo_vote_aggregators.retain(|(e, ..), _| *e > epoch);
+        self.ready_vote_aggregators.retain(|(e, ..), _| *e > epoch);
+        self.share_coin_aggregators.retain(|(e, ..), _| *e > epoch);
     }
 }
 
@@ -130,53 +114,6 @@ impl RBCProofMaker {
         {
             let proof = RBCProof::new(epoch, height, self.votes.clone(), tag);
             return Ok(Some(proof));
-        }
-        Ok(None)
-    }
-}
-
-struct PrepareMaker {
-    optnum: Stake,
-    pesnum: Stake,
-    used: HashSet<PublicKey>,
-}
-
-impl PrepareMaker {
-    pub fn new() -> Self {
-        Self {
-            optnum: 0,
-            pesnum: 0,
-            used: HashSet::new(),
-        }
-    }
-
-    /// Try to append a signature to a (partial) quorum.
-    pub fn append(
-        &mut self,
-        prepare: Prepare,
-        committee: &Committee,
-    ) -> ConsensusResult<Option<(u8, bool)>> {
-        // Ensure it is the first time this authority votes.
-        let author = prepare.author;
-        ensure!(
-            self.used.insert(author),
-            ConsensusError::AuthorityReuseinPrepare(author)
-        );
-        if prepare.val == OPT {
-            self.optnum += committee.stake(&author)
-        } else {
-            self.pesnum += committee.stake(&author)
-        }
-        let total = self.optnum + self.pesnum;
-
-        if total == committee.quorum_threshold() {
-            if self.optnum >= committee.random_coin_threshold() {
-                return Ok(Some((OPT, true)));
-            } else if self.optnum > 0 {
-                return Ok(Some((OPT, false)));
-            }
-
-            return Ok(Some((PES, false)));
         }
         Ok(None)
     }

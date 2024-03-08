@@ -1,4 +1,3 @@
-use crate::commitor::MAX_BLOCK_BUFFER;
 use crate::config::Committee;
 use crate::core::SeqNumber;
 use crate::error::{ConsensusError, ConsensusResult};
@@ -64,8 +63,7 @@ impl Block {
 
     // block`s rank
     pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+        let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
     }
 }
@@ -155,8 +153,7 @@ impl EchoVote {
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+        let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
     }
 }
@@ -241,8 +238,7 @@ impl ReadyVote {
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+        let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
     }
 }
@@ -337,79 +333,79 @@ impl fmt::Display for RBCProof {
 /************************** RBC Struct ************************************/
 
 /************************** prepare Struct ************************************/
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Prepare {
-    pub author: PublicKey,
-    pub epoch: SeqNumber,
-    pub height: SeqNumber,
-    pub val: u8,
-    pub signature: Signature,
-}
+// #[derive(Serialize, Deserialize, Default, Clone)]
+// pub struct Prepare {
+//     pub author: PublicKey,
+//     pub epoch: SeqNumber,
+//     pub height: SeqNumber,
+//     pub val: u8,
+//     pub signature: Signature,
+// }
 
-impl Prepare {
-    pub async fn new(
-        author: PublicKey,
-        epoch: SeqNumber,
-        height: SeqNumber,
-        val: u8,
-        mut signature_service: SignatureService,
-    ) -> Self {
-        let mut prepare = Self {
-            author,
-            epoch,
-            height,
-            val,
-            signature: Signature::default(),
-        };
-        prepare.signature = signature_service.request_signature(prepare.digest()).await;
-        return prepare;
-    }
+// impl Prepare {
+//     pub async fn new(
+//         author: PublicKey,
+//         epoch: SeqNumber,
+//         height: SeqNumber,
+//         val: u8,
+//         mut signature_service: SignatureService,
+//     ) -> Self {
+//         let mut prepare = Self {
+//             author,
+//             epoch,
+//             height,
+//             val,
+//             signature: Signature::default(),
+//         };
+//         prepare.signature = signature_service.request_signature(prepare.digest()).await;
+//         return prepare;
+//     }
 
-    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(&self.author);
-        ensure!(
-            voting_rights > 0,
-            ConsensusError::UnknownAuthority(self.author)
-        );
+//     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+//         // Ensure the authority has voting rights.
+//         let voting_rights = committee.stake(&self.author);
+//         ensure!(
+//             voting_rights > 0,
+//             ConsensusError::UnknownAuthority(self.author)
+//         );
 
-        // Check the signature.
-        self.signature.verify(&self.digest(), &self.author)?;
+//         // Check the signature.
+//         self.signature.verify(&self.digest(), &self.author)?;
 
-        Ok(())
-    }
+//         Ok(())
+//     }
 
-    pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
-        r
-    }
-}
+//     pub fn rank(&self, committee: &Committee) -> usize {
+//         let r =
+//             ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+//         r
+//     }
+// }
 
-impl Hash for Prepare {
-    fn digest(&self) -> Digest {
-        let mut hasher = Sha512::new();
-        hasher.update(self.author.0);
-        hasher.update(self.epoch.to_le_bytes());
-        hasher.update(self.height.to_le_bytes());
-        hasher.update(self.val.to_le_bytes());
-        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
-    }
-}
+// impl Hash for Prepare {
+//     fn digest(&self) -> Digest {
+//         let mut hasher = Sha512::new();
+//         hasher.update(self.author.0);
+//         hasher.update(self.epoch.to_le_bytes());
+//         hasher.update(self.height.to_le_bytes());
+//         hasher.update(self.val.to_le_bytes());
+//         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+//     }
+// }
 
-impl fmt::Debug for Prepare {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}: Prepare(author {}, epoch {},  height {}, val {})",
-            self.digest(),
-            self.author,
-            self.epoch,
-            self.height,
-            self.val
-        )
-    }
-}
+// impl fmt::Debug for Prepare {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+//         write!(
+//             f,
+//             "{}: Prepare(author {}, epoch {},  height {}, val {})",
+//             self.digest(),
+//             self.author,
+//             self.epoch,
+//             self.height,
+//             self.val
+//         )
+//     }
+// }
 /************************** pre-prepare Struct ************************************/
 
 /************************** ABA Struct ************************************/
@@ -453,8 +449,7 @@ impl ABAVal {
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+        let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
     }
 }
@@ -527,8 +522,7 @@ impl ABAOutput {
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
-        let r =
-            ((self.epoch as usize) * committee.size() + (self.height as usize)) % MAX_BLOCK_BUFFER;
+        let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
     }
 }
