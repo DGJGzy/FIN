@@ -634,7 +634,7 @@ impl Core {
         round: SeqNumber,
         val: usize,
     ) -> ConsensusResult<()> {
-        info!("ABA(epoch {} height {}) end output({})", epoch, height, val);
+        debug!("ABA(epoch {} height {}) end output({})", epoch, height, val);
 
         if !self.aba_ends.contains_key(&(epoch, height)) {
             //step1. send output message
@@ -662,6 +662,7 @@ impl Core {
                 )
                 .await?;
             }
+            info!("ABA(epoch {},height {}) ouput {}", epoch, height, val);
             self.aba_ends.insert((epoch, height), val as u8);
 
             self.aba_ends_nums
