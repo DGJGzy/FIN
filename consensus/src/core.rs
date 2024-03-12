@@ -740,9 +740,9 @@ impl Core {
                     .block_request(epoch, height, &self.committee)
                     .await?
                 {
-                    if !self.mempool_driver.verify(block.clone()).await? {
-                        return Ok(());
-                    }
+                    // if !self.mempool_driver.verify(block.clone()).await? {
+                    //     return Ok(());
+                    // }
                     data.push(block);
                 }
             }
@@ -775,7 +775,7 @@ impl Core {
                         ConsensusMessage::ABAMuxMsg(mux)=> self.handle_aba_mux(&mux).await,
                         ConsensusMessage::ABACoinShareMsg(share)=>self.handle_aba_share(&share).await,
                         ConsensusMessage::ABAOutputMsg(output)=>self.handle_aba_output(&output).await,
-                        ConsensusMessage::LoopBackMsg(epoch,height) => self.process_rbc_output(epoch,height).await,
+                        ConsensusMessage::LoopBackMsg(epoch,_) => self.handle_epoch_end(epoch).await,
                         ConsensusMessage::SyncRequestMsg(epoch,height, sender) => self.handle_sync_request(epoch,height, sender).await,
                         ConsensusMessage::SyncReplyMsg(block) => self.handle_sync_reply(&block).await,
 
