@@ -28,8 +28,8 @@ pub const RBC_READY: u8 = 1;
 pub const VAL_PHASE: u8 = 0;
 pub const MUX_PHASE: u8 = 1;
 
-pub const OPT: u8 = 0;
-pub const PES: u8 = 1;
+pub const OPT: u8 = 1;
+pub const PES: u8 = 0;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ConsensusMessage {
@@ -178,7 +178,10 @@ impl Core {
 
     /************* RBC Protocol ******************/
     #[async_recursion]
-    async fn generate_rbc_proposal(&mut self) -> ConsensusResult<Block> {
+    async fn generate_rbc_proposal(&mut self) -> ConsensusResult<()> {
+        if self.height < self.parameters.fault {
+            return Ok(());
+        }
         // Make a new block.
         debug!("start rbc epoch {}", self.epoch);
         let payload = self
@@ -224,7 +227,7 @@ impl Core {
         // Wait for the minimum block delay.
         sleep(Duration::from_millis(self.parameters.min_block_delay)).await;
 
-        Ok(block)
+        Ok(())
     }
 
     async fn handle_rbc_val(&mut self, block: &Block) -> ConsensusResult<()> {
@@ -469,7 +472,7 @@ impl Core {
                     .entry((aba_val.epoch, aba_val.height, aba_val.round))
                     .or_insert([false, false]);
 
-                if !values_flag[0] && !values_flag[1] {
+                if !values_flag[OPT as usize] && !values_flag[PES as usize] {
                     values_flag[aba_val.val] = true;
                     let mux = ABAVal::new(
                         self.name,
@@ -515,7 +518,7 @@ impl Core {
                 .entry((aba_mux.epoch, aba_mux.height, aba_mux.round))
                 .or_insert([false, false]);
 
-            if !mux_flags[0] && !mux_flags[1] {
+            if !mux_flags[PES as usize] && !mux_flags[OPT as usize] {
                 let nums_opt = values[OPT as usize].len();
                 let nums_pes = values[PES as usize].len();
                 if nums_opt + nums_pes >= self.committee.quorum_threshold() as usize {
@@ -523,17 +526,19 @@ impl Core {
                         .aba_values_flag
                         .entry((aba_mux.epoch, aba_mux.height, aba_mux.round))
                         .or_insert([false, false]);
-                    if value_flags[0] && value_flags[1] {
-                        mux_flags[0] = nums_opt > 0;
-                        mux_flags[1] = nums_pes > 1;
-                    } else if value_flags[0] {
-                        mux_flags[0] = nums_opt >= self.committee.quorum_threshold() as usize;
+                    if value_flags[PES as usize] && value_flags[OPT as usize] {
+                        mux_flags[OPT as usize] = nums_opt > 0;
+                        mux_flags[PES as usize] = nums_pes > 0;
+                    } else if value_flags[OPT as usize] {
+                        mux_flags[OPT as usize] =
+                            nums_opt >= self.committee.quorum_threshold() as usize;
                     } else {
-                        mux_flags[1] = nums_pes >= self.committee.quorum_threshold() as usize;
+                        mux_flags[PES as usize] =
+                            nums_pes >= self.committee.quorum_threshold() as usize;
                     }
                 }
 
-                if mux_flags[0] || mux_flags[1] {
+                if mux_flags[PES as usize] || mux_flags[OPT as usize] {
                     let share = RandomnessShare::new(
                         aba_mux.epoch,
                         aba_mux.height,
@@ -740,9 +745,11 @@ impl Core {
                     .block_request(epoch, height, &self.committee)
                     .await?
                 {
-                    // if !self.mempool_driver.verify(block.clone()).await? {
-                    //     return Ok(());
-                    // }
+                    if self.parameters.exp > 0 {
+                        if !self.mempool_driver.verify(block.clone()).await? {
+                            return Ok(());
+                        }
+                    }
                     data.push(block);
                 }
             }
