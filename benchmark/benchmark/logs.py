@@ -40,13 +40,15 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        proposals, commits, sizes, self.received_samples, timeouts, self.configs,h_proposals,h_commits \
+        proposals, commits, sizes, self.received_samples, timeouts, self.configs,h_proposals,h_commits,rbc_times,aba_times \
             = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.h_proposals = self._merge_results([x.items() for x in h_proposals])
         self.h_commits = self._merge_results([x.items() for x in h_commits])
         sizes = self._merge_results([x.items() for x in sizes])
+        self.rbc_times = self._merge_results([x.items() for x in rbc_times])
+        self.aba_times = self._merge_results([x.items() for x in aba_times])
         # # 不算重复的payload
         # self.sizes = {
         #     k: v for x in sizes for k, v in x.items() if k in self.commits
@@ -124,6 +126,24 @@ class LogParser:
         tmp = findall(r'.* WARN .* Timeout', log)
         timeouts = len(tmp)
 
+        #RBC/ABA
+        tmp_start = findall(r'\[(.*Z) .* start epoch (\d+) height (\d+)',log)
+        tmp_start = {e+"="+h:self._to_posix(t) for t,e,h in tmp_start}
+
+        tmp_rbc_end = findall(r'\[(.*Z) .* end rbc epoch (\d+) height (\d+)',log)
+        tmp_rbc_end = {e+"="+h:self._to_posix(t) for t,e,h in tmp_rbc_end}
+
+        tmp_end = findall(r'\[(.*Z) .* end epoch (\d+) height (\d+)',log)
+        tmp_end = {e+"="+h:self._to_posix(t) for t,e,h in tmp_end}
+        
+        rbc_times = {}
+        aba_times = {}
+
+        for k,v in tmp_start.items():
+            if k in tmp_rbc_end and k in tmp_end:
+                rbc_times[k] = tmp_rbc_end[k]-v
+                aba_times[k] = tmp_end[k]-tmp_rbc_end[k]
+
         configs = {
             'consensus': {
                 'timeout_delay': int(
@@ -159,7 +179,7 @@ class LogParser:
             }
         }
 
-        return proposals, commits, sizes, samples, timeouts, configs,h_proposals,h_commits
+        return proposals, commits, sizes, samples, timeouts, configs,h_proposals,h_commits,rbc_times,aba_times
 
     def _to_posix(self, string):
         x = datetime.fromisoformat(string.replace('Z', '+00:00'))
@@ -249,10 +269,17 @@ class LogParser:
             '-----------------------------------------\n'
         )
 
-    def print(self, filename):
-        assert isinstance(filename, str)
-        with open(filename, 'a') as f:
+    def print(self, res_filename,rbc_filename,aba_filename):
+        with open(res_filename, 'a') as f:
             f.write(self.result())
+        
+        with open(rbc_filename,'w') as f:
+            for k,v in self.rbc_times.items():
+                f.write(f'{k}--{v}\n')
+
+        with open(aba_filename,'w') as f:
+            for k,v in self.aba_times.items():
+                f.write(f'{k}--{v}\n')
 
     @classmethod
     def process(cls, directory, faults=0, protocol=0, ddos=False):
