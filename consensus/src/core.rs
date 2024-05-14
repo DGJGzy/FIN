@@ -212,6 +212,10 @@ impl Core {
         }
         debug!("Created {:?}", block);
 
+        //start
+        #[cfg(feature = "benchmark")]
+        info!("start epoch {} height {}", self.epoch, self.height);
+
         // Process our new block and broadcast it.
         let message = ConsensusMessage::RBCValMsg(block.clone());
         Synchronizer::transmit(
@@ -350,6 +354,13 @@ impl Core {
             .rbc_epoch_outputs
             .entry(epoch)
             .or_insert(HashSet::new());
+
+        if height == self.height {
+            //RBC end
+            #[cfg(feature = "benchmark")]
+            info!("end rbc epoch {} height {}", epoch, height);
+        }
+
         if outputs.insert(height) {
             self.invoke_aba(epoch, height, OPT).await?;
         }
@@ -736,6 +747,10 @@ impl Core {
     /************* ABA Protocol ******************/
 
     pub async fn handle_epoch_end(&mut self, epoch: SeqNumber) -> ConsensusResult<()> {
+        //end epoch
+        #[cfg(feature = "benchmark")]
+        info!("end epoch {} height {}", epoch, self.height);
+
         let mut data: Vec<Block> = Vec::new();
 
         for height in 0..(self.committee.size() as SeqNumber) {
