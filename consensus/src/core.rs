@@ -355,13 +355,12 @@ impl Core {
             .entry(epoch)
             .or_insert(HashSet::new());
 
-        if height == self.height {
-            //RBC end
-            #[cfg(feature = "benchmark")]
-            info!("end rbc epoch {} height {}", epoch, height);
-        }
-
         if outputs.insert(height) {
+            if height == self.height {
+                //RBC end
+                #[cfg(feature = "benchmark")]
+                info!("end rbc epoch {} height {}", epoch, height);
+            }
             self.invoke_aba(epoch, height, OPT).await?;
         }
         Ok(())
