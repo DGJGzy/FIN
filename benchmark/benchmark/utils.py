@@ -62,7 +62,25 @@ class PathMaker:
     @staticmethod
     def result_file(nodes, rate, tx_size, faults):
         return join(
-            PathMaker.results_path(), f'bench-{nodes}-{rate}-{tx_size}-{faults}.txt'
+            PathMaker.results_path(), f'result-{nodes}-{rate}-{tx_size}-{faults}.txt'
+        )
+    
+    @staticmethod
+    def rbc_file(nodes, rate, tx_size, faults):
+        return join(
+            PathMaker.results_path(), f'rbctime-{nodes}-{rate}-{tx_size}-{faults}.txt'
+        )
+    
+    @staticmethod
+    def ba_file(nodes, rate, tx_size, faults):
+        return join(
+            PathMaker.results_path(), f'batime-{nodes}-{rate}-{tx_size}-{faults}.txt'
+        )
+
+    @staticmethod
+    def tx_file(nodes, rate, tx_size, faults):
+        return join(
+            PathMaker.results_path(), f'txtime-{nodes}-{rate}-{tx_size}-{faults}.txt'
         )
 
     @staticmethod

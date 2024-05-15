@@ -78,7 +78,7 @@ class LogParser:
         merged = {}
         for x in input:
             for k, v in x:
-                if not k in merged or merged[k] < v:
+                if not k in merged or merged[k] > v:
                     merged[k] = v
         return merged
 
@@ -268,8 +268,40 @@ class LogParser:
             f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
             '-----------------------------------------\n'
         )
+    
 
-    def print(self, res_filename,rbc_filename,aba_filename):
+    def transactionsWithTime(self):
+        times,t_times = [],[0]
+        time2num = {}
+        for k,t in self.commits.items():
+            if k in self.sizes:
+                if t not in time2num:
+                    time2num[t] = 0
+                    times.append(t)
+                time2num[t] += self.sizes[k]/self.size[0]
+        times.sort()
+        start,key,temp = times[0]-self._consensus_latency(),0.0 ,{0:0.0}
+        for t in times:
+            d = t-start
+            if d<=0.005:
+                d=0
+            key+=d
+            start+=d
+            if len(t_times)==0 or t_times[-1]!=key:
+                t_times.append(key)    
+            temp[key] = temp.get(key-d,0) + time2num[t]
+
+        content = ""
+        for i,t in enumerate(t_times):
+            line = ""
+            if i!=0:
+                line += f'{t},{temp[t_times[i-1]]}\n'
+            line += f'{t},{temp[t]}\n'
+            content+=line
+        content += "\n"
+        return content
+
+    def print(self, res_filename,rbc_filename,aba_filename,time_filename):
         with open(res_filename, 'a') as f:
             f.write(self.result())
         
@@ -280,6 +312,9 @@ class LogParser:
         with open(aba_filename,'w') as f:
             for k,v in self.aba_times.items():
                 f.write(f'{k}--{v}\n')
+
+        with open(time_filename,'w') as f:
+            f.write(self.transactionsWithTime())
 
     @classmethod
     def process(cls, directory, faults=0, protocol=0, ddos=False):

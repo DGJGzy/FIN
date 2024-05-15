@@ -130,7 +130,7 @@ class NodeParameters:
         self.random_chance = json['consensus']['random_chance']
         self.protocol = json['protocol']
         self.json = json
-        self.fault = [json['consensus']['fault']]
+        self.fault = json['consensus']['fault']
 
     def print(self, filename):
         assert isinstance(filename, str)
