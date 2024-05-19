@@ -102,8 +102,8 @@ class Bench:
             return []
 
         # Select the hosts in different data centers.
-        ordered = zip(*hosts.values())
-        ordered = [x for y in ordered for x in y]
+        # ordered = zip(*hosts.values())
+        ordered = [x for y in hosts.values() for x in y]
         return ordered[:nodes]
 
     def _background_run(self, host, command, log_file):
