@@ -16,6 +16,7 @@ pub mod aggregator_tests;
 pub struct Aggregator {
     committee: Committee,
     share_coin_aggregators: HashMap<(SeqNumber, SeqNumber, SeqNumber), Box<RandomCoinMaker>>,
+    share_leader_aggregators: HashMap<(SeqNumber, SeqNumber, SeqNumber), Box<RandomLeaderMaker>>,
     echo_vote_aggregators: HashMap<(SeqNumber, SeqNumber), Box<RBCProofMaker>>,
     ready_vote_aggregators: HashMap<(SeqNumber, SeqNumber), Box<RBCProofMaker>>,
 }
@@ -25,6 +26,7 @@ impl Aggregator {
         Self {
             committee,
             share_coin_aggregators: HashMap::new(),
+            share_leader_aggregators: HashMap::new(),
             echo_vote_aggregators: HashMap::new(),
             ready_vote_aggregators: HashMap::new(),
         }
@@ -68,11 +70,23 @@ impl Aggregator {
             .or_insert_with(|| Box::new(RandomCoinMaker::new()))
             .append(share, &self.committee, pk_set)
     }
+    
+    pub fn add_share_leader(
+        &mut self,
+        share: RandomnessShare,
+        pk_set: &PublicKeySet,
+    ) -> ConsensusResult<Option<usize>> {
+        self.share_leader_aggregators
+            .entry((share.epoch, share.height, share.round))
+            .or_insert_with(|| Box::new(RandomLeaderMaker::new()))
+            .append(share, &self.committee, pk_set)
+    }
 
     pub fn cleanup(&mut self, epoch: SeqNumber) {
         self.echo_vote_aggregators.retain(|(e, ..), _| *e > epoch);
         self.ready_vote_aggregators.retain(|(e, ..), _| *e > epoch);
         self.share_coin_aggregators.retain(|(e, ..), _| *e > epoch);
+        self.share_leader_aggregators.retain(|(e, ..), _| *e > epoch);
     }
 }
 
@@ -162,6 +176,55 @@ impl RandomCoinMaker {
             if let Ok(sig) = pk_set.combine_signatures(sigs.iter()) {
                 let id = usize::from_be_bytes((&sig.to_bytes()[0..8]).try_into().unwrap()) % 2;
 
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+}
+
+struct RandomLeaderMaker {
+    weight: Stake,
+    shares: Vec<RandomnessShare>,
+    used: HashSet<PublicKey>,
+}
+
+impl RandomLeaderMaker {
+    pub fn new() -> Self {
+        Self {
+            weight: 0,
+            shares: Vec::new(),
+            used: HashSet::new(),
+        }
+    }
+
+    /// Try to append a signature to a (partial) quorum.
+    pub fn append(
+        &mut self,
+        share: RandomnessShare,
+        committee: &Committee,
+        pk_set: &PublicKeySet,
+    ) -> ConsensusResult<Option<usize>> {
+        let author = share.author;
+        // Ensure it is the first time this authority votes.
+        ensure!(
+            self.used.insert(author),
+            ConsensusError::AuthorityReuseinCoin(author)
+        );
+        self.shares.push(share.clone());
+        self.weight += committee.stake(&author);
+        // 2f+1
+        if self.weight == committee.quorum_threshold() {
+            let mut sigs = BTreeMap::new();
+            // Check the random shares.
+            for share in self.shares.clone() {
+                sigs.insert(
+                    committee.id(share.author.clone()),
+                    share.signature_share.clone(),
+                );
+            }
+            if let Ok(sig) = pk_set.combine_signatures(sigs.iter()) {
+                let id = usize::from_be_bytes((&sig.to_bytes()[0..8]).try_into().unwrap()) % committee.size();
                 return Ok(Some(id));
             }
         }

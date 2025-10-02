@@ -36,6 +36,7 @@ pub enum ConsensusMessage {
     RBCValMsg(Block),
     RBCEchoMsg(EchoVote),
     RBCReadyMsg(ReadyVote),
+    LeaderShareMsg(RandomnessShare),
     ABAValMsg(ABAVal),
     ABAMuxMsg(ABAVal),
     ABACoinShareMsg(RandomnessShare),
@@ -60,6 +61,7 @@ pub struct Core {
     _commit_channel: Sender<Block>,
     epoch: SeqNumber,
     height: SeqNumber,
+    iter: SeqNumber,
     aggregator: Aggregator,
     rbc_proofs: HashMap<(SeqNumber, SeqNumber, u8), RBCProof>, //需要update
     rbc_ready: HashSet<(SeqNumber, SeqNumber)>,
@@ -71,7 +73,8 @@ pub struct Core {
     aba_mux_flags: HashMap<(SeqNumber, SeqNumber, SeqNumber), [bool; 2]>,
     aba_outputs: HashMap<(SeqNumber, SeqNumber, SeqNumber), HashSet<PublicKey>>,
     aba_ends: HashMap<(SeqNumber, SeqNumber), u8>,
-    aba_ends_nums: HashMap<(SeqNumber, u8), HashSet<SeqNumber>>,
+    // aba_ends_nums: HashMap<(SeqNumber, u8), HashSet<SeqNumber>>,
+    leader_set: HashMap<(SeqNumber, SeqNumber), SeqNumber>,
 }
 
 impl Core {
@@ -334,7 +337,7 @@ impl Core {
                 .await?;
                 self.handle_rbc_ready(&ready).await?;
                 return Ok(());
-            }
+            } 
             if proof.votes.len() as Stake == self.committee.quorum_threshold() {
                 self.process_rbc_output(vote.epoch, vote.height).await?;
             }
@@ -355,14 +358,26 @@ impl Core {
             .entry(epoch)
             .or_insert(HashSet::new());
 
-        if outputs.insert(height) {
-            if height == self.height {
-                //RBC end
-                #[cfg(feature = "benchmark")]
-                info!("end rbc epoch {} height {}", epoch, height);
-            }
-            self.invoke_aba(epoch, height, OPT).await?;
-        }
+        if outputs.len() == self.committee.quorum_threshold() as usize {
+            let share = RandomnessShare::new(
+                epoch,
+                height,
+                0,
+                self.name,
+                self.signature_service.clone(),
+            )
+            .await;
+            let message = ConsensusMessage::LeaderShareMsg(share.clone());
+            Synchronizer::transmit(
+                message,
+                &self.name,
+                None,
+                &self.network_filter,
+                &self.committee,
+            )
+            .await?;
+            self.handle_leader_share(&share).await?;
+        } 
         Ok(())
     }
 
@@ -405,14 +420,14 @@ impl Core {
     async fn invoke_aba(
         &mut self,
         epoch: SeqNumber,
-        height: SeqNumber,
+        iter: SeqNumber,
         val: u8,
     ) -> ConsensusResult<()> {
-        if self.aba_invoke_flags.insert((epoch, height)) {
+        if self.aba_invoke_flags.insert((epoch, iter)) {
             let aba_val = ABAVal::new(
                 self.name,
                 epoch,
-                height,
+                iter,
                 0,
                 val as usize,
                 VAL_PHASE,
@@ -436,19 +451,19 @@ impl Core {
     #[async_recursion]
     async fn handle_aba_val(&mut self, aba_val: &ABAVal) -> ConsensusResult<()> {
         debug!(
-            "processing aba val epoch {} height {}",
-            aba_val.epoch, aba_val.height
+            "processing aba val epoch {} iter {}",
+            aba_val.epoch, aba_val.iter
         );
 
         aba_val.verify()?;
 
         let values = self
             .aba_values
-            .entry((aba_val.epoch, aba_val.height, aba_val.round))
+            .entry((aba_val.epoch, aba_val.iter, aba_val.round))
             .or_insert([HashSet::new(), HashSet::new()]);
 
         if values[aba_val.val].insert(aba_val.author) {
-            let mut nums = values[aba_val.val].len() as Stake;
+            let nums = values[aba_val.val].len() as Stake;
             if nums == self.committee.random_coin_threshold()
                 && !values[aba_val.val].contains(&self.name)
             {
@@ -456,7 +471,7 @@ impl Core {
                 let other = ABAVal::new(
                     self.name,
                     aba_val.epoch,
-                    aba_val.height,
+                    aba_val.iter,
                     aba_val.round,
                     aba_val.val,
                     VAL_PHASE,
@@ -473,13 +488,13 @@ impl Core {
                 )
                 .await?;
                 values[aba_val.val].insert(self.name);
-                nums += 1;
             }
 
+            let nums = values[aba_val.val].len() as Stake;
             if nums == self.committee.quorum_threshold() {
                 let values_flag = self
                     .aba_values_flag
-                    .entry((aba_val.epoch, aba_val.height, aba_val.round))
+                    .entry((aba_val.epoch, aba_val.iter, aba_val.round))
                     .or_insert([false, false]);
 
                 if !values_flag[OPT as usize] && !values_flag[PES as usize] {
@@ -487,7 +502,7 @@ impl Core {
                     let mux = ABAVal::new(
                         self.name,
                         aba_val.epoch,
-                        aba_val.height,
+                        aba_val.iter,
                         aba_val.round,
                         aba_val.val,
                         MUX_PHASE,
@@ -514,18 +529,18 @@ impl Core {
 
     async fn handle_aba_mux(&mut self, aba_mux: &ABAVal) -> ConsensusResult<()> {
         debug!(
-            "processing aba mux epoch {} height {}",
-            aba_mux.epoch, aba_mux.height
+            "processing aba mux epoch {} iter {}",
+            aba_mux.epoch, aba_mux.iter
         );
         aba_mux.verify()?;
         let values = self
             .aba_mux_values
-            .entry((aba_mux.epoch, aba_mux.height, aba_mux.round))
+            .entry((aba_mux.epoch, aba_mux.iter, aba_mux.round))
             .or_insert([HashSet::new(), HashSet::new()]);
         if values[aba_mux.val].insert(aba_mux.author) {
             let mux_flags = self
                 .aba_mux_flags
-                .entry((aba_mux.epoch, aba_mux.height, aba_mux.round))
+                .entry((aba_mux.epoch, aba_mux.iter, aba_mux.round))
                 .or_insert([false, false]);
 
             if !mux_flags[PES as usize] && !mux_flags[OPT as usize] {
@@ -534,7 +549,7 @@ impl Core {
                 if nums_opt + nums_pes >= self.committee.quorum_threshold() as usize {
                     let value_flags = self
                         .aba_values_flag
-                        .entry((aba_mux.epoch, aba_mux.height, aba_mux.round))
+                        .entry((aba_mux.epoch, aba_mux.iter, aba_mux.round))
                         .or_insert([false, false]);
                     if value_flags[PES as usize] && value_flags[OPT as usize] {
                         mux_flags[OPT as usize] = nums_opt > 0;
@@ -551,7 +566,7 @@ impl Core {
                 if mux_flags[PES as usize] || mux_flags[OPT as usize] {
                     let share = RandomnessShare::new(
                         aba_mux.epoch,
-                        aba_mux.height,
+                        aba_mux.iter,
                         aba_mux.round,
                         self.name,
                         self.signature_service.clone(),
@@ -576,40 +591,67 @@ impl Core {
 
     async fn handle_aba_share(&mut self, share: &RandomnessShare) -> ConsensusResult<()> {
         debug!(
-            "processing coin share epoch {} height {}",
-            share.epoch, share.height
+            "processing coin share epoch {} iter {}",
+            share.epoch, share.iter
         );
         share.verify(&self.committee, &self.pk_set)?;
         if let Some(coin) = self
             .aggregator
             .add_aba_share_coin(share.clone(), &self.pk_set)?
         {
+            // if !mux_flags[coin] && !mux_flags[coin ^ 1] ?
             let mux_flags = self
                 .aba_mux_flags
-                .entry((share.epoch, share.height, share.round))
+                .entry((share.epoch, share.iter, share.round))
                 .or_insert([false, false]);
             let mut val = coin;
             if mux_flags[coin] && !mux_flags[coin ^ 1] {
-                self.process_aba_output(share.epoch, share.height, share.round, coin)
+                self.process_aba_output(share.epoch, share.iter, share.round, coin)
                     .await?;
             } else if !mux_flags[coin] && mux_flags[coin ^ 1] {
                 val = coin ^ 1;
             }
-            self.aba_adcance_round(share.epoch, share.height, share.round + 1, val)
+            self.aba_adcance_round(share.epoch, share.iter, share.round + 1, val)
                 .await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_leader_share(&mut self, share: &RandomnessShare) -> ConsensusResult<()> {
+        debug!(
+            "processing leader share epoch {} iter {}",
+            share.epoch, share.iter
+        );
+        share.verify(&self.committee, &self.pk_set)?;
+        if let Some(leader) = self
+            .aggregator
+            .add_share_leader(share.clone(), &self.pk_set)?
+        {
+            self.leader_set.insert((share.epoch, share.iter), leader as SeqNumber);
+            let outputs = self
+                .rbc_epoch_outputs
+                .entry(share.epoch)
+                .or_insert(HashSet::new());
+
+            // Leader Election is earlier than 2f+1 RBC outputs ?
+            if outputs.contains(&(leader as SeqNumber)) {
+                self.invoke_aba(share.epoch,  self.iter, OPT).await?;
+            } else {
+                self.invoke_aba(share.epoch, self.iter, PES).await?;
+            }
         }
         Ok(())
     }
 
     async fn handle_aba_output(&mut self, output: &ABAOutput) -> ConsensusResult<()> {
         debug!(
-            "processing aba output epoch {} height {}",
-            output.epoch, output.height
+            "processing aba output epoch {} iter {}",
+            output.epoch, output.iter
         );
         output.verify()?;
         let used = self
             .aba_outputs
-            .entry((output.epoch, output.height, output.round))
+            .entry((output.epoch, output.iter, output.round))
             .or_insert(HashSet::new());
         if used.insert(output.author)
             && used.len() == self.committee.random_coin_threshold() as usize
@@ -618,7 +660,7 @@ impl Core {
                 let output = ABAOutput::new(
                     self.name,
                     output.epoch,
-                    output.height,
+                    output.iter,
                     output.round,
                     output.val,
                     self.signature_service.clone(),
@@ -635,7 +677,7 @@ impl Core {
                 .await?;
                 used.insert(self.name);
             }
-            self.process_aba_output(output.epoch, output.height, output.round, output.val)
+            self.process_aba_output(output.epoch, output.iter, output.round, output.val)
                 .await?;
         }
 
@@ -645,23 +687,23 @@ impl Core {
     async fn process_aba_output(
         &mut self,
         epoch: SeqNumber,
-        height: SeqNumber,
+        iter: SeqNumber,
         round: SeqNumber,
         val: usize,
     ) -> ConsensusResult<()> {
-        debug!("ABA(epoch {} height {}) end output({})", epoch, height, val);
+        debug!("ABA(epoch {} iter {}) end output({})", epoch, iter, val);
 
-        if !self.aba_ends.contains_key(&(epoch, height)) {
+        if !self.aba_ends.contains_key(&(epoch, iter)) {
             //step1. send output message
             let used = self
                 .aba_outputs
-                .entry((epoch, height, round))
+                .entry((epoch, iter, round))
                 .or_insert(HashSet::new());
             if used.insert(self.name) {
                 let output = ABAOutput::new(
                     self.name,
                     epoch,
-                    height,
+                    iter,
                     round,
                     val,
                     self.signature_service.clone(),
@@ -677,36 +719,13 @@ impl Core {
                 )
                 .await?;
             }
-            info!("ABA(epoch {},height {}) ouput {}", epoch, height, val);
-            self.aba_ends.insert((epoch, height), val as u8);
+            info!("ABA(epoch {}, iter {}) output {}", epoch, iter, val);
+            self.aba_ends.insert((epoch, iter), val as u8);
 
-            self.aba_ends_nums
-                .entry((epoch, val as u8))
-                .or_insert(HashSet::new())
-                .insert(height);
-            let opt_num = self
-                .aba_ends_nums
-                .entry((epoch, OPT))
-                .or_insert(HashSet::new())
-                .len();
-            let pes_num = self
-                .aba_ends_nums
-                .entry((epoch, PES))
-                .or_insert(HashSet::new())
-                .len();
-
-            //step2. wait 2f+1
-            if opt_num as Stake == self.committee.quorum_threshold() {
-                for height in 0..(self.committee.size() as SeqNumber) {
-                    if !self.aba_invoke_flags.contains(&(epoch, height)) {
-                        self.invoke_aba(epoch, height, PES).await?;
-                    }
-                }
-            }
-
-            //step3. receive all aba output?
-            if opt_num + pes_num == self.committee.size() {
-                self.handle_epoch_end(epoch).await?;
+            if val as u8 == OPT {
+                self.handle_epoch_end(epoch, iter).await?;
+            } else {
+                self.advance_iter(iter + 1).await?;
             }
         }
         Ok(())
@@ -745,31 +764,33 @@ impl Core {
     }
     /************* ABA Protocol ******************/
 
-    pub async fn handle_epoch_end(&mut self, epoch: SeqNumber) -> ConsensusResult<()> {
+    pub async fn handle_epoch_end(&mut self, epoch: SeqNumber, iter: SeqNumber) -> ConsensusResult<()> {
         //end epoch
         #[cfg(feature = "benchmark")]
         info!("end epoch {} height {}", epoch, self.height);
 
         let mut data: Vec<Block> = Vec::new();
 
-        for height in 0..(self.committee.size() as SeqNumber) {
-            if *self.aba_ends.get(&(epoch, height)).unwrap() == OPT {
-                if let Some(block) = self
-                    .synchronizer
-                    .block_request(epoch, height, &self.committee)
-                    .await?
-                {
-                    if self.parameters.exp > 0 {
-                        if !self.mempool_driver.verify(block.clone()).await? {
-                            return Ok(());
-                        }
-                    }
-                    data.push(block);
+        // If leader is not elected, handle later.
+        if !self.leader_set.contains_key(&(epoch, iter)) {
+            return Ok(());
+        }
+        let leader = *self.leader_set.get(&(epoch, iter)).unwrap();
+        if let Some(block) = self
+            .synchronizer
+            .block_request(epoch, leader, &self.committee)
+            .await?
+        {
+            if self.parameters.exp > 0 {
+                if !self.mempool_driver.verify(block.clone()).await? {
+                    return Ok(());
                 }
             }
+            data.push(block);
         }
         self.commit(data).await?;
         self.advance_epoch(epoch + 1).await?;
+
         Ok(())
     }
 
@@ -777,6 +798,31 @@ impl Core {
         if epoch > self.epoch {
             self.epoch = epoch;
             self.generate_rbc_proposal().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn advance_iter(&mut self, iter: SeqNumber) -> ConsensusResult<()> {
+        if iter > self.iter {
+            self.iter = iter;
+            let share = RandomnessShare::new(
+                self.epoch,
+                self.iter,
+                0,
+                self.name,
+                self.signature_service.clone(),
+            )
+            .await;
+            let message = ConsensusMessage::LeaderShareMsg(share.clone());
+            Synchronizer::transmit(
+                message,
+                &self.name,
+                None,
+                &self.network_filter,
+                &self.committee,
+            )
+            .await?;
+            self.handle_leader_share(&share).await?;
         }
         Ok(())
     }
@@ -795,17 +841,16 @@ impl Core {
                         ConsensusMessage::RBCValMsg(block)=> self.handle_rbc_val(&block).await,
                         ConsensusMessage::RBCEchoMsg(evote)=> self.handle_rbc_echo(&evote).await,
                         ConsensusMessage::RBCReadyMsg(rvote)=> self.handle_rbc_ready(&rvote).await,
+                        ConsensusMessage::LeaderShareMsg(share)=>self.handle_leader_share(&share).await,
                         ConsensusMessage::ABAValMsg(val)=>self.handle_aba_val(&val).await,
                         ConsensusMessage::ABAMuxMsg(mux)=> self.handle_aba_mux(&mux).await,
                         ConsensusMessage::ABACoinShareMsg(share)=>self.handle_aba_share(&share).await,
                         ConsensusMessage::ABAOutputMsg(output)=>self.handle_aba_output(&output).await,
                         ConsensusMessage::LoopBackMsg(epoch,_) => self.handle_epoch_end(epoch).await,
-                        ConsensusMessage::SyncRequestMsg(epoch,height, sender) => self.handle_sync_request(epoch,height, sender).await,
+                        ConsensusMessage::SyncRequestMsg(epoch,height, sender) => self.handle_sync_request(epoch, height, sender).await,
                         ConsensusMessage::SyncReplyMsg(block) => self.handle_sync_reply(&block).await,
-
                     }
                 },
-
                 else => break,
             };
             match result {

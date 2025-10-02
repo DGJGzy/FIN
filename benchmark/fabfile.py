@@ -13,28 +13,29 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 4,
-        'rate': 1000,
-        'tx_size': 512,
+        'rate': 10000,
+        'tx_size': 256,
         'faults': 0,
         'duration': 30,
     }
     node_params = {
         'consensus': {
+            'fault': 0,
             'sync_timeout': 2_000,
             'timeout_delay': 2_000,
             'sync_retry_delay': 10_000,
-            'max_payload_size': 500,
+            'max_payload_size': 1_000,
             'min_block_delay': 0,
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
             'ddos': False, # True for DDoS attack on the leader, False otherwise
-            'random_ddos': True,
+            'random_ddos': False,
             'random_chance': 10,
             'exp': 1 # multiplicative factor for exponential fallback
         },
         'mempool': {
             'queue_capacity': 10_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 15_000,
+            'max_payload_size': 256_000,
             'min_block_delay': 0
         },
         'protocol': 0, # 0 for flexible HBBFT, 1 for other
