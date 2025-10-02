@@ -61,7 +61,6 @@ pub struct Core {
     _commit_channel: Sender<Block>,
     epoch: SeqNumber,
     height: SeqNumber,
-    iter: SeqNumber,
     aggregator: Aggregator,
     rbc_proofs: HashMap<(SeqNumber, SeqNumber, u8), RBCProof>, //需要update
     rbc_ready: HashSet<(SeqNumber, SeqNumber)>,
@@ -73,8 +72,8 @@ pub struct Core {
     aba_mux_flags: HashMap<(SeqNumber, SeqNumber, SeqNumber), [bool; 2]>,
     aba_outputs: HashMap<(SeqNumber, SeqNumber, SeqNumber), HashSet<PublicKey>>,
     aba_ends: HashMap<(SeqNumber, SeqNumber), u8>,
-    // aba_ends_nums: HashMap<(SeqNumber, u8), HashSet<SeqNumber>>,
     leader_set: HashMap<(SeqNumber, SeqNumber), SeqNumber>,
+    iter: HashMap<SeqNumber, SeqNumber>, //epoch -> iter
 }
 
 impl Core {
@@ -120,7 +119,8 @@ impl Core {
             aba_mux_flags: HashMap::new(),
             aba_outputs: HashMap::new(),
             aba_ends: HashMap::new(),
-            aba_ends_nums: HashMap::new(),
+            leader_set: HashMap::new(),
+            iter: HashMap::new(),
         }
     }
 
@@ -166,6 +166,7 @@ impl Core {
         self.mempool_driver
             .cleanup(digest, epoch, (self.committee.size() - 1) as SeqNumber)
             .await;
+        // Message related to ABA Output message can not be cleared.
         self.rbc_proofs.retain(|(e, ..), _| *e > epoch);
         self.rbc_ready.retain(|(e, ..)| *e > epoch);
         // self.rbc_outputs.retain(|(e, h, ..), _| e * size + h > rank);
@@ -174,6 +175,8 @@ impl Core {
         self.aba_mux_values.retain(|(e, ..), _| *e > epoch);
         self.aba_values_flag.retain(|(e, ..), _| *e > epoch);
         self.aba_mux_flags.retain(|(e, ..), _| *e > epoch);
+        // self.leader_set.retain(|(e, ..), _| *e > epoch);
+        // self.iter.retain(|e, _| *e >= epoch);
         // self.aba_outputs.retain(|(e, h, ..), _| e * size + h > rank);
         // self.aba_ends.retain(|(e, h, ..), _| e * size + h > rank);
         Ok(())
@@ -358,25 +361,28 @@ impl Core {
             .entry(epoch)
             .or_insert(HashSet::new());
 
-        if outputs.len() == self.committee.quorum_threshold() as usize {
-            let share = RandomnessShare::new(
-                epoch,
-                height,
-                0,
-                self.name,
-                self.signature_service.clone(),
-            )
-            .await;
-            let message = ConsensusMessage::LeaderShareMsg(share.clone());
-            Synchronizer::transmit(
-                message,
-                &self.name,
-                None,
-                &self.network_filter,
-                &self.committee,
-            )
-            .await?;
-            self.handle_leader_share(&share).await?;
+        if outputs.insert(height) {
+            let iter = *self.iter.entry(epoch).or_insert(0);
+            if outputs.len() == self.committee.quorum_threshold() as usize {
+                let share = RandomnessShare::new(
+                    epoch,
+                    iter,
+                    0,
+                    self.name,
+                    self.signature_service.clone(),
+                )
+                .await;
+                let message = ConsensusMessage::LeaderShareMsg(share.clone());
+                Synchronizer::transmit(
+                    message,
+                    &self.name,
+                    None,
+                    &self.network_filter,
+                    &self.committee,
+                )
+                .await?;
+                self.handle_leader_share(&share).await?; 
+            }
         } 
         Ok(())
     }
@@ -634,10 +640,11 @@ impl Core {
                 .or_insert(HashSet::new());
 
             // Leader Election is earlier than 2f+1 RBC outputs ?
+            let iter = *self.iter.entry(share.epoch).or_insert(0);
             if outputs.contains(&(leader as SeqNumber)) {
-                self.invoke_aba(share.epoch,  self.iter, OPT).await?;
+                self.invoke_aba(share.epoch, iter, OPT).await?;
             } else {
-                self.invoke_aba(share.epoch, self.iter, PES).await?;
+                self.invoke_aba(share.epoch, iter, PES).await?;
             }
         }
         Ok(())
@@ -803,11 +810,12 @@ impl Core {
     }
 
     pub async fn advance_iter(&mut self, iter: SeqNumber) -> ConsensusResult<()> {
-        if iter > self.iter {
-            self.iter = iter;
+        let self_iter = self.iter.entry(self.epoch).or_insert(0);
+        if iter > *self_iter {
+            *self_iter = iter;
             let share = RandomnessShare::new(
                 self.epoch,
-                self.iter,
+                *self_iter,
                 0,
                 self.name,
                 self.signature_service.clone(),
@@ -846,8 +854,8 @@ impl Core {
                         ConsensusMessage::ABAMuxMsg(mux)=> self.handle_aba_mux(&mux).await,
                         ConsensusMessage::ABACoinShareMsg(share)=>self.handle_aba_share(&share).await,
                         ConsensusMessage::ABAOutputMsg(output)=>self.handle_aba_output(&output).await,
-                        ConsensusMessage::LoopBackMsg(epoch,_) => self.handle_epoch_end(epoch).await,
-                        ConsensusMessage::SyncRequestMsg(epoch,height, sender) => self.handle_sync_request(epoch, height, sender).await,
+                        ConsensusMessage::LoopBackMsg(epoch, height) => self.process_rbc_output(epoch, height).await,
+                        ConsensusMessage::SyncRequestMsg(epoch, height, sender) => self.handle_sync_request(epoch, height, sender).await,
                         ConsensusMessage::SyncReplyMsg(block) => self.handle_sync_reply(&block).await,
                     }
                 },

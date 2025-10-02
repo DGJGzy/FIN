@@ -3,6 +3,7 @@ use crate::core::{SeqNumber, RBC_ECHO, RBC_READY};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{EchoVote, RBCProof, RandomnessShare, ReadyVote};
 use crypto::{PublicKey, Signature};
+use log::debug;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 use threshold_crypto::PublicKeySet;
@@ -66,7 +67,7 @@ impl Aggregator {
         pk_set: &PublicKeySet,
     ) -> ConsensusResult<Option<usize>> {
         self.share_coin_aggregators
-            .entry((share.epoch, share.height, share.round))
+            .entry((share.epoch, share.iter, share.round))
             .or_insert_with(|| Box::new(RandomCoinMaker::new()))
             .append(share, &self.committee, pk_set)
     }
@@ -77,7 +78,7 @@ impl Aggregator {
         pk_set: &PublicKeySet,
     ) -> ConsensusResult<Option<usize>> {
         self.share_leader_aggregators
-            .entry((share.epoch, share.height, share.round))
+            .entry((share.epoch, share.iter, share.round))
             .or_insert_with(|| Box::new(RandomLeaderMaker::new()))
             .append(share, &self.committee, pk_set)
     }
@@ -214,6 +215,7 @@ impl RandomLeaderMaker {
         self.shares.push(share.clone());
         self.weight += committee.stake(&author);
         // 2f+1
+        debug!("leader weight {}", self.weight);
         if self.weight == committee.quorum_threshold() {
             let mut sigs = BTreeMap::new();
             // Check the random shares.

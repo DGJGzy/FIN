@@ -12,8 +12,8 @@ from aws.remote import Bench, BenchError
 def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
-        'nodes': 4,
-        'rate': 10000,
+        'nodes': 7,
+        'rate': 50000,
         'tx_size': 256,
         'faults': 0,
         'duration': 30,
@@ -41,7 +41,7 @@ def local(ctx):
         'protocol': 0, # 0 for flexible HBBFT, 1 for other
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=False).result()
+        ret = LocalBench(bench_params, node_params).run(debug=True).result()
         print(ret)
     except BenchError as e:
         Print.error(e)
