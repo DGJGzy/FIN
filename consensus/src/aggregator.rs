@@ -2,7 +2,7 @@ use crate::config::{Committee, Stake};
 use crate::core::{SeqNumber, RBC_ECHO, RBC_READY};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{EchoVote, RBCProof, RandomnessShare, ReadyVote};
-use crypto::{PublicKey, Signature};
+use crypto::{PublicKey};
 use log::debug;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
@@ -42,7 +42,6 @@ impl Aggregator {
                 vote.height,
                 vote.author,
                 RBC_ECHO,
-                vote.signature,
                 &self.committee,
             )
     }
@@ -56,7 +55,6 @@ impl Aggregator {
                 vote.height,
                 vote.author,
                 RBC_READY,
-                vote.signature,
                 &self.committee,
             )
     }
@@ -93,7 +91,7 @@ impl Aggregator {
 
 struct RBCProofMaker {
     weight: Stake,
-    votes: Vec<(PublicKey, Signature)>,
+    votes: Vec<PublicKey>,
     used: HashSet<PublicKey>,
 }
 
@@ -113,7 +111,6 @@ impl RBCProofMaker {
         height: SeqNumber,
         author: PublicKey,
         tag: u8,
-        siganture: Signature,
         committee: &Committee,
     ) -> ConsensusResult<Option<RBCProof>> {
         // Ensure it is the first time this authority votes.
@@ -121,7 +118,7 @@ impl RBCProofMaker {
             self.used.insert(author),
             ConsensusError::AuthorityReuseinRBCVote(author)
         );
-        self.votes.push((author, siganture));
+        self.votes.push(author);
         self.weight += committee.stake(&author);
 
         if self.weight == committee.quorum_threshold()

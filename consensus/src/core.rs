@@ -199,7 +199,6 @@ impl Core {
             self.epoch,
             self.height,
             payload,
-            self.signature_service.clone(),
         )
         .await;
         if !block.payload.is_empty() {
@@ -253,7 +252,6 @@ impl Core {
             block.epoch,
             block.height,
             block,
-            self.signature_service.clone(),
         )
         .await;
         let message = ConsensusMessage::RBCEchoMsg(vote.clone());
@@ -287,7 +285,6 @@ impl Core {
                 vote.epoch,
                 vote.height,
                 vote.digest.clone(),
-                self.signature_service.clone(),
             )
             .await;
             let message = ConsensusMessage::RBCReadyMsg(ready.clone());
@@ -326,7 +323,6 @@ impl Core {
                     vote.epoch,
                     vote.height,
                     vote.digest.clone(),
-                    self.signature_service.clone(),
                 )
                 .await;
                 let message = ConsensusMessage::RBCReadyMsg(ready.clone());
@@ -438,7 +434,6 @@ impl Core {
                 0,
                 val as usize,
                 VAL_PHASE,
-                self.signature_service.clone(),
             )
             .await;
             let message = ConsensusMessage::ABAValMsg(aba_val.clone());
@@ -471,7 +466,7 @@ impl Core {
             aba_val.epoch, aba_val.iter
         );
 
-        aba_val.verify()?;
+        // aba_val.verify()?;
 
         let values = self
             .aba_values
@@ -491,7 +486,6 @@ impl Core {
                     aba_val.round,
                     aba_val.val,
                     VAL_PHASE,
-                    self.signature_service.clone(),
                 )
                 .await;
                 let message = ConsensusMessage::ABAValMsg(other);
@@ -532,7 +526,6 @@ impl Core {
                         aba_val.round,
                         aba_val.val,
                         MUX_PHASE,
-                        self.signature_service.clone(),
                     )
                     .await;
                     let message = ConsensusMessage::ABAMuxMsg(mux.clone());
@@ -558,7 +551,7 @@ impl Core {
             "processing aba mux epoch {} iter {}",
             aba_mux.epoch, aba_mux.iter
         );
-        aba_mux.verify()?;
+        // aba_mux.verify()?;
         let values = self
             .aba_mux_values
             .entry((aba_mux.epoch, aba_mux.iter, aba_mux.round))
@@ -680,7 +673,7 @@ impl Core {
             "processing aba output epoch {} iter {}",
             output.epoch, output.iter
         );
-        output.verify()?;
+        // output.verify()?;
         let used = self
             .aba_outputs
             .entry((output.epoch, output.iter, output.round))
@@ -695,7 +688,6 @@ impl Core {
                     output.iter,
                     output.round,
                     output.val,
-                    self.signature_service.clone(),
                 )
                 .await;
                 let message = ConsensusMessage::ABAOutputMsg(output);
@@ -738,7 +730,6 @@ impl Core {
                     iter,
                     round,
                     val,
-                    self.signature_service.clone(),
                 )
                 .await;
                 let message = ConsensusMessage::ABAOutputMsg(output);
@@ -783,7 +774,6 @@ impl Core {
                 round,
                 val,
                 VAL_PHASE,
-                self.signature_service.clone(),
             )
             .await;
             let message = ConsensusMessage::ABAValMsg(aba_val.clone());

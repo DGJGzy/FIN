@@ -1,7 +1,7 @@
 use crate::config::Committee;
 use crate::core::SeqNumber;
 use crate::error::{ConsensusError, ConsensusResult};
-use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
+use crypto::{Digest, Hash, PublicKey, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,6 @@ pub struct Block {
     pub epoch: SeqNumber,  //
     pub height: SeqNumber, // author`s id
     pub payload: Vec<Digest>,
-    pub signature: Signature,
 }
 
 impl Block {
@@ -29,18 +28,15 @@ impl Block {
         epoch: SeqNumber,
         height: SeqNumber,
         payload: Vec<Digest>,
-        mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
             author,
             epoch,
             height,
             payload,
-            signature: Signature::default(),
         };
 
-        let signature = signature_service.request_signature(block.digest()).await;
-        Self { signature, ..block }
+        Self { ..block }
     }
 
     pub fn genesis() -> Self {
@@ -54,9 +50,6 @@ impl Block {
             voting_rights > 0,
             ConsensusError::UnknownAuthority(self.author)
         );
-
-        // Check the signature.
-        self.signature.verify(&self.digest(), &self.author)?;
 
         Ok(())
     }
@@ -116,7 +109,6 @@ pub struct EchoVote {
     pub epoch: SeqNumber,
     pub height: SeqNumber,
     pub digest: Digest,
-    pub signature: Signature,
 }
 
 impl EchoVote {
@@ -125,16 +117,13 @@ impl EchoVote {
         epoch: SeqNumber,
         height: SeqNumber,
         block: &Block,
-        mut signature_service: SignatureService,
     ) -> Self {
-        let mut vote = Self {
+        let vote = Self {
             author,
             epoch,
             height,
             digest: block.digest(),
-            signature: Signature::default(),
         };
-        vote.signature = signature_service.request_signature(vote.digest()).await;
         return vote;
     }
 
@@ -145,9 +134,6 @@ impl EchoVote {
             voting_rights > 0,
             ConsensusError::UnknownAuthority(self.author)
         );
-
-        // Check the signature.
-        self.signature.verify(&self.digest(), &self.author)?;
 
         Ok(())
     }
@@ -201,7 +187,6 @@ pub struct ReadyVote {
     pub epoch: SeqNumber,
     pub height: SeqNumber,
     pub digest: Digest,
-    pub signature: Signature,
 }
 
 impl ReadyVote {
@@ -210,16 +195,13 @@ impl ReadyVote {
         epoch: SeqNumber,
         height: SeqNumber,
         digest: Digest,
-        mut signature_service: SignatureService,
     ) -> Self {
-        let mut vote = Self {
+        let vote = Self {
             author,
             epoch,
             height,
             digest,
-            signature: Signature::default(),
         };
-        vote.signature = signature_service.request_signature(vote.digest()).await;
         return vote;
     }
 
@@ -230,9 +212,6 @@ impl ReadyVote {
             voting_rights > 0,
             ConsensusError::UnknownAuthority(self.author)
         );
-
-        // Check the signature.
-        self.signature.verify(&self.digest(), &self.author)?;
 
         Ok(())
     }
@@ -284,7 +263,7 @@ impl fmt::Display for ReadyVote {
 pub struct RBCProof {
     pub epoch: SeqNumber,
     pub height: SeqNumber,
-    pub votes: Vec<(PublicKey, Signature)>,
+    pub votes: Vec<PublicKey>,
     pub tag: u8,
 }
 
@@ -292,7 +271,7 @@ impl RBCProof {
     pub fn new(
         epoch: SeqNumber,
         height: SeqNumber,
-        votes: Vec<(PublicKey, Signature)>,
+        votes: Vec<PublicKey>,
         tag: u8,
     ) -> Self {
         Self {
@@ -417,7 +396,6 @@ pub struct ABAVal {
     pub round: SeqNumber, //ABA 的轮数
     pub phase: u8,        //ABA 的阶段（VAL，AUX）
     pub val: usize,
-    pub signature: Signature,
 }
 
 impl ABAVal {
@@ -428,24 +406,16 @@ impl ABAVal {
         round: SeqNumber,
         val: usize,
         phase: u8,
-        mut signature_service: SignatureService,
     ) -> Self {
-        let mut aba_val = Self {
+        let aba_val = Self {
             author,
             epoch,
             iter,
             round,
             val,
             phase,
-            signature: Signature::default(),
         };
-        aba_val.signature = signature_service.request_signature(aba_val.digest()).await;
         return aba_val;
-    }
-
-    pub fn verify(&self) -> ConsensusResult<()> {
-        self.signature.verify(&self.digest(), &self.author)?;
-        Ok(())
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
@@ -492,7 +462,6 @@ pub struct ABAOutput {
     pub iter: SeqNumber,
     pub round: SeqNumber,
     pub val: usize,
-    pub signature: Signature,
 }
 
 impl ABAOutput {
@@ -502,23 +471,15 @@ impl ABAOutput {
         iter: SeqNumber,
         round: SeqNumber,
         val: usize,
-        mut signature_service: SignatureService,
     ) -> Self {
-        let mut out = Self {
+        let out = Self {
             author,
             epoch,
             iter,
             round,
             val,
-            signature: Signature::default(),
         };
-        out.signature = signature_service.request_signature(out.digest()).await;
         return out;
-    }
-
-    pub fn verify(&self) -> ConsensusResult<()> {
-        self.signature.verify(&self.digest(), &self.author)?;
-        Ok(())
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
