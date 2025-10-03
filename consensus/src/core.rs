@@ -244,7 +244,7 @@ impl Core {
             "processing RBC val epoch {} height {}",
             block.epoch, block.height
         );
-        block.verify(&self.committee)?;
+        // block.verify(&self.committee)?;
         self.store_block(block).await;
 
         let vote = EchoVote::new(
@@ -274,7 +274,7 @@ impl Core {
             "processing RBC echo_vote epoch {} height {}",
             vote.epoch, vote.height
         );
-        vote.verify(&self.committee)?;
+        // vote.verify(&self.committee)?;
 
         if let Some(proof) = self.aggregator.add_rbc_echo_vote(vote.clone())? {
             self.rbc_proofs
@@ -308,7 +308,7 @@ impl Core {
             "processing RBC ready_vote epoch {} height {}",
             vote.epoch, vote.height
         );
-        vote.verify(&self.committee)?;
+        // vote.verify(&self.committee)?;
 
         if let Some(proof) = self.aggregator.add_rbc_ready_vote(vote.clone())? {
             let flag = self.rbc_ready.contains(&(vote.epoch, vote.height));
@@ -411,7 +411,7 @@ impl Core {
             "processing sync reply epoch {} height {}",
             block.epoch, block.height
         );
-        block.verify(&self.committee)?;
+        // block.verify(&self.committee)?;
         self.store_block(block).await;
         self.process_rbc_output(block.epoch, block.height).await?;
         Ok(())
@@ -591,15 +591,17 @@ impl Core {
                         self.signature_service.clone(),
                     )
                     .await;
-                    let message = ConsensusMessage::ABACoinShareMsg(share.clone());
-                    Synchronizer::transmit(
-                        message,
-                        &self.name,
-                        None,
-                        &self.network_filter,
-                        &self.committee,
-                    )
-                    .await?;
+                    if share.round != 0 {
+                        let message = ConsensusMessage::ABACoinShareMsg(share.clone());
+                        Synchronizer::transmit(
+                            message,
+                            &self.name,
+                            None,
+                            &self.network_filter,
+                            &self.committee,
+                        )
+                        .await?;
+                    }
                     self.handle_aba_share(&share).await?;
                 }
             }
@@ -613,15 +615,15 @@ impl Core {
             "processing coin share epoch {} iter {}",
             share.epoch, share.iter
         );
-        share.verify(&self.committee, &self.pk_set)?;
-        if let Some(mut coin) = self
+        // share.verify(&self.committee, &self.pk_set)?;
+        if let Some(coin) = self
             .aggregator
             .add_aba_share_coin(share.clone(), &self.pk_set)?
         {
             // round 0 Optimization 3: coin must be 1
-            if share.round == 0 {
-                coin = 1;
-            }
+            // if share.round == 0 {
+            //     coin = 1;
+            // }
 
             // if !mux_flags[coin] && !mux_flags[coin ^ 1] ?
             let mux_flags = self
@@ -646,7 +648,7 @@ impl Core {
             "processing leader share epoch {} iter {}",
             share.epoch, share.iter
         );
-        share.verify(&self.committee, &self.pk_set)?;
+        // share.verify(&self.committee, &self.pk_set)?;
         if let Some(leader) = self
             .aggregator
             .add_share_leader(share.clone(), &self.pk_set)?

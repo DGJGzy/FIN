@@ -153,6 +153,10 @@ impl RandomCoinMaker {
         committee: &Committee,
         pk_set: &PublicKeySet,
     ) -> ConsensusResult<Option<usize>> {
+        // round 0 Optimization 3: coin must be 1
+        if share.round == 0 {
+            return Ok(Some(1));
+        }
         let author = share.author;
         // Ensure it is the first time this authority votes.
         ensure!(

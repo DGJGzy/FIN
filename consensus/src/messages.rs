@@ -1,13 +1,12 @@
 use crate::config::Committee;
 use crate::core::SeqNumber;
-use crate::error::{ConsensusError, ConsensusResult};
 use crypto::{Digest, Hash, PublicKey, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
-use threshold_crypto::{PublicKeySet, SignatureShare};
+use threshold_crypto::{SignatureShare};
 
 #[cfg(test)]
 #[path = "tests/messages_tests.rs"]
@@ -41,17 +40,6 @@ impl Block {
 
     pub fn genesis() -> Self {
         Block::default()
-    }
-
-    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(&self.author);
-        ensure!(
-            voting_rights > 0,
-            ConsensusError::UnknownAuthority(self.author)
-        );
-
-        Ok(())
     }
 
     // block`s rank
@@ -127,17 +115,6 @@ impl EchoVote {
         return vote;
     }
 
-    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(&self.author);
-        ensure!(
-            voting_rights > 0,
-            ConsensusError::UnknownAuthority(self.author)
-        );
-
-        Ok(())
-    }
-
     pub fn rank(&self, committee: &Committee) -> usize {
         let r = (self.epoch as usize) * committee.size() + (self.height as usize);
         r
@@ -203,17 +180,6 @@ impl ReadyVote {
             digest,
         };
         return vote;
-    }
-
-    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(&self.author);
-        ensure!(
-            voting_rights > 0,
-            ConsensusError::UnknownAuthority(self.author)
-        );
-
-        Ok(())
     }
 
     pub fn rank(&self, committee: &Committee) -> usize {
@@ -547,21 +513,21 @@ impl RandomnessShare {
         }
     }
 
-    pub fn verify(&self, committee: &Committee, pk_set: &PublicKeySet) -> ConsensusResult<()> {
-        // Ensure the authority has voting rights.
-        ensure!(
-            committee.stake(&self.author) > 0,
-            ConsensusError::UnknownAuthority(self.author)
-        );
-        let tss_pk = pk_set.public_key_share(committee.id(self.author));
-        // Check the signature.
-        ensure!(
-            tss_pk.verify(&self.signature_share, &self.digest()),
-            ConsensusError::InvalidThresholdSignature(self.author)
-        );
+    // pub fn verify(&self, committee: &Committee, pk_set: &PublicKeySet) -> ConsensusResult<()> {
+    //     // Ensure the authority has voting rights.
+    //     ensure!(
+    //         committee.stake(&self.author) > 0,
+    //         ConsensusError::UnknownAuthority(self.author)
+    //     );
+    //     let tss_pk = pk_set.public_key_share(committee.id(self.author));
+    //     // Check the signature.
+    //     ensure!(
+    //         tss_pk.verify(&self.signature_share, &self.digest()),
+    //         ConsensusError::InvalidThresholdSignature(self.author)
+    //     );
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 impl Hash for RandomnessShare {
