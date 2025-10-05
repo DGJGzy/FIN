@@ -90,6 +90,236 @@ impl fmt::Display for Block {
     }
 }
 
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct RBCProposal {
+    pub author: PublicKey,
+    pub epoch: SeqNumber,  //
+    pub height: SeqNumber, // author`s id
+    pub val: Vec<bool>,
+}
+
+impl RBCProposal {
+    pub async fn new(
+        author: PublicKey,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        val: Vec<bool>,
+    ) -> Self {
+        let proposal = Self {
+            author,
+            epoch,
+            height,
+            val,
+        };
+
+        Self { ..proposal }
+    }
+}
+
+impl Hash for RBCProposal {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.author.0);
+        hasher.update(self.epoch.to_le_bytes());
+        hasher.update(self.height.to_le_bytes());
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for RBCProposal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: B(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+impl fmt::Display for RBCProposal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: B(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct EchoVote2 {
+    pub author: PublicKey,
+    pub epoch: SeqNumber,
+    pub height: SeqNumber,
+    pub digest: Digest,
+}
+
+impl EchoVote2 {
+    pub async fn new(
+        author: PublicKey,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        proposal: &RBCProposal,
+    ) -> Self {
+        let vote = Self {
+            author,
+            epoch,
+            height,
+            digest: proposal.digest(),
+        };
+        return vote;
+    }
+}
+
+impl Hash for EchoVote2 {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.author.0);
+        hasher.update(self.epoch.to_le_bytes());
+        hasher.update(self.height.to_le_bytes());
+        hasher.update(self.digest.0);
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for EchoVote2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: EchoVote2(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+impl fmt::Display for EchoVote2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: EchoVote2(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct ReadyVote2 {
+    pub author: PublicKey,
+    pub epoch: SeqNumber,
+    pub height: SeqNumber,
+    pub digest: Digest,
+}
+
+impl ReadyVote2 {
+    pub async fn new(
+        author: PublicKey,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        digest: Digest,
+    ) -> Self {
+        let vote = Self {
+            author,
+            epoch,
+            height,
+            digest,
+        };
+        return vote;
+    }
+}
+
+impl Hash for ReadyVote2 {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.author.0);
+        hasher.update(self.epoch.to_le_bytes());
+        hasher.update(self.height.to_le_bytes());
+        hasher.update(self.digest.0);
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for ReadyVote2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: ReadyVote2(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+impl fmt::Display for ReadyVote2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: ReadyVote2(author {}, epoch {},  height {})",
+            self.digest(),
+            self.author,
+            self.epoch,
+            self.height,
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct RBCProof2 {
+    pub epoch: SeqNumber,
+    pub height: SeqNumber,
+    pub votes: Vec<PublicKey>,
+    pub tag: u8,
+}
+
+impl RBCProof2 {
+    pub fn new(
+        epoch: SeqNumber,
+        height: SeqNumber,
+        votes: Vec<PublicKey>,
+        tag: u8,
+    ) -> Self {
+        Self {
+            epoch,
+            height,
+            votes,
+            tag,
+        }
+    }
+}
+
+impl fmt::Debug for RBCProof2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "RBCProof2(epoch {}, height {},tag {})",
+            self.epoch, self.height, self.tag,
+        )
+    }
+}
+
+impl fmt::Display for RBCProof2 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "RBCProof2(epoch {},  height {},tag {})",
+            self.epoch, self.height, self.tag,
+        )
+    }
+}
+
 /************************** RBC Struct ************************************/
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct EchoVote {

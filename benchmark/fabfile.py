@@ -105,16 +105,17 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [50],
-        'rate': [35_000, 40_000],
-        'tx_size': 512,
+        'nodes': [7],
+        'rate': [80000, 100000],
+        'tx_size': 256,
         'faults': 0, 
-        'duration': 300,
-        'runs': 2,
+        'duration': 100,
+        'runs': 1,
     }
     node_params = {
         'consensus': {
-            'sync_timeout': 2000,
+            'fault': 0,
+            'sync_timeout': 10_000,
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 1_000,
@@ -128,13 +129,13 @@ def remote(ctx):
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 500_000,
-            'min_block_delay': 100
+            'max_payload_size': 256_000,
+            'min_block_delay': 50
         },
         'protocol': 0, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug=False)
+        Bench(ctx).run(bench_params, node_params, debug=True)
     except BenchError as e:
         Print.error(e)
 

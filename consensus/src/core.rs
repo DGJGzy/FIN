@@ -5,7 +5,7 @@ use crate::config::{Committee, Parameters, Stake};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::filter::FilterInput;
 use crate::mempool::MempoolDriver;
-use crate::messages::{ABAOutput, ABAVal, Block, EchoVote, RBCProof, RandomnessShare, ReadyVote};
+use crate::messages::{ABAOutput, ABAVal, Block, EchoVote, EchoVote2, RBCProof, RBCProof2, RBCProposal, RandomnessShare, ReadyVote, ReadyVote2};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use crypto::{Digest, PublicKey, SignatureService};
@@ -36,6 +36,9 @@ pub enum ConsensusMessage {
     RBCValMsg(Block),
     RBCEchoMsg(EchoVote),
     RBCReadyMsg(ReadyVote),
+    RBCProposalMsg(RBCProposal),
+    RBCEchoMsg2(EchoVote2),
+    RBCReadyMsg2(ReadyVote2),
     LeaderShareMsg(RandomnessShare),
     ABAValMsg(ABAVal),
     ABAMuxMsg(ABAVal),
@@ -74,6 +77,11 @@ pub struct Core {
     aba_ends: HashMap<(SeqNumber, SeqNumber), u8>,
     leader_set: HashMap<(SeqNumber, SeqNumber), SeqNumber>,
     iter: HashMap<SeqNumber, SeqNumber>, //epoch -> iter
+    mvba_invoke: HashSet<SeqNumber>,
+    mvba_proposal: HashMap<(SeqNumber, SeqNumber), Vec<bool>>, 
+    rbc_proofs2: HashMap<(SeqNumber, SeqNumber, u8), RBCProof2>,
+    rbc_ready2: HashSet<(SeqNumber, SeqNumber)>,
+    rbc_epoch_outputs2: HashMap<SeqNumber, HashSet<SeqNumber>>,
 }
 
 impl Core {
@@ -121,6 +129,11 @@ impl Core {
             aba_ends: HashMap::new(),
             leader_set: HashMap::new(),
             iter: HashMap::new(),
+            mvba_invoke: HashSet::new(),
+            mvba_proposal: HashMap::new(),
+            rbc_proofs2: HashMap::new(),
+            rbc_ready2: HashSet::new(),
+            rbc_epoch_outputs2: HashMap::new(),
         }
     }
 
@@ -166,9 +179,11 @@ impl Core {
         self.mempool_driver
             .cleanup(digest, epoch, (self.committee.size() - 1) as SeqNumber)
             .await;
-        // Message related to ABA Output message can not be cleared.
+        // Message related to ABA Output message can not be cleared ?
         self.rbc_proofs.retain(|(e, ..), _| *e > epoch);
         self.rbc_ready.retain(|(e, ..)| *e > epoch);
+        self.rbc_proofs2.retain(|(e, ..), _| *e > epoch);
+        self.rbc_ready2.retain(|(e, ..)| *e > epoch);
         // self.rbc_outputs.retain(|(e, h, ..), _| e * size + h > rank);
         // self.prepare_flags.retain(|(e, h), _| e * size + h > rank);
         self.aba_values.retain(|(e, ..), _| *e > epoch);
@@ -176,9 +191,11 @@ impl Core {
         self.aba_values_flag.retain(|(e, ..), _| *e > epoch);
         self.aba_mux_flags.retain(|(e, ..), _| *e > epoch);
         // self.leader_set.retain(|(e, ..), _| *e > epoch);
-        // self.iter.retain(|e, _| *e >= epoch);
+        // self.iter.retain(|e, _| *e > epoch);
         // self.aba_outputs.retain(|(e, h, ..), _| e * size + h > rank);
         // self.aba_ends.retain(|(e, h, ..), _| e * size + h > rank);
+        self.mvba_invoke.retain(|e| *e > epoch);
+        // self.mvba_proposal.retain(|(e, ..), _| *e > epoch);
         Ok(())
     }
 
@@ -358,28 +375,23 @@ impl Core {
             .or_insert(HashSet::new());
 
         if outputs.insert(height) {
-            let iter = *self.iter.entry(epoch).or_insert(0);
-            if outputs.len() == self.committee.quorum_threshold() as usize {
-                let share = RandomnessShare::new(
-                    epoch,
-                    iter,
-                    0,
-                    self.name,
-                    self.signature_service.clone(),
-                )
-                .await;
-                let message = ConsensusMessage::LeaderShareMsg(share.clone());
-                Synchronizer::transmit(
-                    message,
-                    &self.name,
-                    None,
-                    &self.network_filter,
-                    &self.committee,
-                )
-                .await?;
-                self.handle_leader_share(&share).await?; 
+            if height == self.height {
+                //RBC end
+                #[cfg(feature = "benchmark")]
+                info!("end rbc epoch {} height {}", epoch, height);
             }
-        } 
+            if outputs.len() as Stake == self.committee.quorum_threshold() {
+                let mut vals = Vec::new();
+                for height in 0..(self.committee.size() as SeqNumber) {
+                    if outputs.contains(&height) {
+                        vals.push(true);
+                    } else {
+                        vals.push(false);
+                    }
+                }
+                self.invoke_mvba(epoch, self.height, vals).await?;
+            }
+        }
         Ok(())
     }
 
@@ -417,6 +429,177 @@ impl Core {
         Ok(())
     }
     /************* RBC Protocol ******************/
+
+    async fn invoke_mvba(
+        &mut self,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        vals: Vec<bool>,
+    ) -> ConsensusResult<()> {
+        if self.mvba_invoke.insert(epoch) {
+            let proposal = RBCProposal::new(
+                self.name,
+                epoch,
+                height,
+                vals,
+            )
+            .await;
+            let message = ConsensusMessage::RBCProposalMsg(proposal.clone());
+            Synchronizer::transmit(
+                message,
+                &self.name,
+                None,
+                &self.network_filter,
+                &self.committee,
+            )
+            .await?;
+            self.handle_rbc_proposal(&proposal).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_rbc_proposal(&mut self, proposal: &RBCProposal) -> ConsensusResult<()> {
+        debug!(
+            "processing RBC proposal epoch {} height {}",
+            proposal.epoch, proposal.height
+        );
+
+        self.mvba_proposal
+            .insert((proposal.epoch, proposal.height), proposal.val.clone());
+
+        let vote = EchoVote2::new(
+            self.name,
+            proposal.epoch,
+            proposal.height,
+            &proposal,
+        )
+        .await;
+        let message = ConsensusMessage::RBCEchoMsg2(vote.clone());
+
+        Synchronizer::transmit(
+            message,
+            &self.name,
+            None,
+            &self.network_filter,
+            &self.committee,
+        )
+        .await?;
+
+        self.handle_rbc_echo2(&vote).await?;
+        Ok(())
+    }
+
+    async fn handle_rbc_echo2(&mut self, vote: &EchoVote2) -> ConsensusResult<()> {
+        debug!(
+            "processing RBC2 echo_vote epoch {} height {}",
+            vote.epoch, vote.height
+        );
+
+        if let Some(proof) = self.aggregator.add_rbc_echo_vote2(vote.clone())? {
+            self.rbc_proofs2
+                .insert((proof.epoch, proof.height, proof.tag), proof);
+            self.rbc_ready2.insert((vote.epoch, vote.height));
+            let ready = ReadyVote2::new(
+                self.name,
+                vote.epoch,
+                vote.height,
+                vote.digest.clone(),
+            )
+            .await;
+            let message = ConsensusMessage::RBCReadyMsg2(ready.clone());
+            Synchronizer::transmit(
+                message,
+                &self.name,
+                None,
+                &self.network_filter,
+                &self.committee,
+            )
+            .await?;
+            self.handle_rbc_ready2(&ready).await?;
+        }
+
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn handle_rbc_ready2(&mut self, vote: &ReadyVote2) -> ConsensusResult<()> {
+        debug!(
+            "processing RBC2 ready_vote epoch {} height {}",
+            vote.epoch, vote.height
+        );
+
+        if let Some(proof) = self.aggregator.add_rbc_ready_vote2(vote.clone())? {
+            let flag = self.rbc_ready2.contains(&(vote.epoch, vote.height));
+
+            self.rbc_proofs2
+                .insert((proof.epoch, proof.height, proof.tag), proof.clone());
+
+            if !flag && proof.votes.len() as Stake == self.committee.random_coin_threshold() {
+                self.rbc_ready2.insert((vote.epoch, vote.height));
+                let ready = ReadyVote2::new(
+                    self.name,
+                    vote.epoch,
+                    vote.height,
+                    vote.digest.clone(),
+                )
+                .await;
+                let message = ConsensusMessage::RBCReadyMsg2(ready.clone());
+                Synchronizer::transmit(
+                    message,
+                    &self.name,
+                    None,
+                    &self.network_filter,
+                    &self.committee,
+                )
+                .await?;
+                self.handle_rbc_ready2(&ready).await?;
+                return Ok(());
+            } 
+            if proof.votes.len() as Stake == self.committee.quorum_threshold() {
+                self.process_rbc_output2(vote.epoch, vote.height).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn process_rbc_output2(
+        &mut self,
+        epoch: SeqNumber,
+        height: SeqNumber,
+    ) -> ConsensusResult<()> {
+        debug!("processing RBC output2 epoch {} height {}", epoch, height);
+        let outputs = self
+            .rbc_epoch_outputs2
+            .entry(epoch)
+            .or_insert(HashSet::new());
+
+        if outputs.insert(height) {
+            let iter = *self.iter.entry(epoch).or_insert(0);
+            if outputs.len() == self.committee.quorum_threshold() as usize {
+                let share = RandomnessShare::new(
+                    epoch,
+                    iter,
+                    0,
+                    self.name,
+                    self.signature_service.clone(),
+                )
+                .await;
+                let message = ConsensusMessage::LeaderShareMsg(share.clone());
+                Synchronizer::transmit(
+                    message,
+                    &self.name,
+                    None,
+                    &self.network_filter,
+                    &self.committee,
+                )
+                .await?;
+                self.handle_leader_share(&share).await?; 
+            }
+        } 
+        Ok(())
+    }
 
     /************* ABA Protocol ******************/
     async fn invoke_aba(
@@ -655,7 +838,7 @@ impl Core {
         {
             self.leader_set.insert((share.epoch, share.iter), leader as SeqNumber);
             let outputs = self
-                .rbc_epoch_outputs
+                .rbc_epoch_outputs2
                 .entry(share.epoch)
                 .or_insert(HashSet::new());
 
@@ -800,17 +983,26 @@ impl Core {
 
         let mut data: Vec<Block> = Vec::new();
 
-        if let Some(block) = self
-            .synchronizer
-            .block_request(epoch, height, &self.committee)
-            .await?
-        {
-            if self.parameters.exp > 0 {
-                if !self.mempool_driver.verify(block.clone()).await? {
-                    return Ok(());
+        // RBC2 not end yet ?
+        let vals = self
+            .mvba_proposal
+            .entry((epoch, height))
+            .or_insert(Vec::new());
+
+        // check whether vals is empty
+        for height in 0..self.committee.size() {
+            if height < vals.len() && vals[height] {
+                if let Some(block) = self
+                    .synchronizer
+                    .block_request(epoch, height as SeqNumber, &self.committee)
+                    .await?
+                {
+                    if !self.mempool_driver.verify(block.clone()).await? {
+                        return Ok(());
+                    }
+                    data.push(block);
                 }
             }
-            data.push(block);
         }
         self.commit(data).await?;
         self.advance_epoch(epoch + 1).await?;
@@ -866,6 +1058,9 @@ impl Core {
                         ConsensusMessage::RBCValMsg(block) => self.handle_rbc_val(&block).await,
                         ConsensusMessage::RBCEchoMsg(evote) => self.handle_rbc_echo(&evote).await,
                         ConsensusMessage::RBCReadyMsg(rvote) => self.handle_rbc_ready(&rvote).await,
+                        ConsensusMessage::RBCProposalMsg(proposal) => self.handle_rbc_proposal(&proposal).await,
+                        ConsensusMessage::RBCEchoMsg2(evote) => self.handle_rbc_echo2(&evote).await,
+                        ConsensusMessage::RBCReadyMsg2(rvote) => self.handle_rbc_ready2(&rvote).await,
                         ConsensusMessage::LeaderShareMsg(share) => self.handle_leader_share(&share).await,
                         ConsensusMessage::ABAValMsg(val) => self.handle_aba_val(&val).await,
                         ConsensusMessage::ABAMuxMsg(mux) => self.handle_aba_mux(&mux).await,
