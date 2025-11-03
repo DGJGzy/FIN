@@ -1,3 +1,4 @@
+from itertools import zip_longest
 from os import error
 from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
@@ -102,8 +103,8 @@ class Bench:
             return []
 
         # Select the hosts in different data centers.
-        # ordered = zip(*hosts.values())
-        ordered = [x for y in hosts.values() for x in y]
+        ordered = zip_longest(*hosts.values())
+        ordered = [x for y in ordered for x in y if x is not None]
         return ordered[:nodes]
 
     def _background_run(self, host, command, log_file):
