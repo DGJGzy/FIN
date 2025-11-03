@@ -105,8 +105,8 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [7],
-        'rate': [80000, 100000],
+        'nodes': [16],
+        'rate': [80000, 85000, 82500],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -135,7 +135,7 @@ def remote(ctx):
         'protocol': 0, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug=True)
+        Bench(ctx).run(bench_params, node_params, debug=False)
     except BenchError as e:
         Print.error(e)
 

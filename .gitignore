@@ -2,7 +2,7 @@
 
 .db*
 db_*
-*.json
+.*.json
 *.log
 
 benchmark/client
