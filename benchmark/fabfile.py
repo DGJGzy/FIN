@@ -30,7 +30,9 @@ def local(ctx):
             'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_chance': 10,
-            'exp': 1 # multiplicative factor for exponential fallback
+            'exp': 1, # multiplicative factor for exponential fallback
+            'unstable_ddos': True,
+            'unstable_delay': 50,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -124,7 +126,9 @@ def remote(ctx):
             'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_chance': 0,
-            'exp': 5 # multiplicative factor for exponential fallback
+            'exp': 5, # multiplicative factor for exponential fallback
+            'unstable_ddos': True,
+            'unstable_delay': 500,
         },
         'mempool': {
             'queue_capacity': 100_000,
