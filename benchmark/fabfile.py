@@ -107,8 +107,8 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [16],
-        'rate': [80000, 85000, 82500],
+        'nodes': [7],
+        'rate': [30000, 40000, 50000, 60000, 140000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -128,7 +128,7 @@ def remote(ctx):
             'random_chance': 0,
             'exp': 5, # multiplicative factor for exponential fallback
             'unstable_ddos': True,
-            'unstable_delay': 500,
+            'unstable_delay': 0,
         },
         'mempool': {
             'queue_capacity': 100_000,
