@@ -16,7 +16,7 @@ def local(ctx):
         'rate': 50000,
         'tx_size': 256,
         'faults': 0,
-        'duration': 30,
+        'duration': 150,
     }
     node_params = {
         'consensus': {
@@ -31,7 +31,7 @@ def local(ctx):
             'random_ddos': False,
             'random_chance': 10,
             'exp': 1, # multiplicative factor for exponential fallback
-            'unstable_ddos': True,
+            'unstable_ddos': False,
             'unstable_delay': 50,
         },
         'mempool': {
@@ -43,7 +43,7 @@ def local(ctx):
         'protocol': 0, # 0 for flexible HBBFT, 1 for other
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=True).result()
+        ret = LocalBench(bench_params, node_params).run(debug=False).result()
         print(ret)
     except BenchError as e:
         Print.error(e)
@@ -108,10 +108,10 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [7],
-        'rate': [30000, 40000, 50000, 60000, 140000],
+        'rate': [20000, 40000, 60000, 80000, 100000, 140000],
         'tx_size': 256,
         'faults': 0, 
-        'duration': 100,
+        'duration': 150,
         'runs': 1,
     }
     node_params = {
@@ -127,8 +127,8 @@ def remote(ctx):
             'random_ddos': False,
             'random_chance': 0,
             'exp': 5, # multiplicative factor for exponential fallback
-            'unstable_ddos': True,
-            'unstable_delay': 0,
+            'unstable_ddos': False,
+            'unstable_delay': 500,
         },
         'mempool': {
             'queue_capacity': 100_000,

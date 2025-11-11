@@ -11,7 +11,7 @@
     "repo": {
         "name": "FIN",
         "url": "https://github.com/DGJGzy/FIN",
-        "branch": "ec2-1"
+        "branch": "ec2-2"
     },
     "instances": {
         "type": "m5d.xlarge",
